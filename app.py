@@ -107,6 +107,39 @@ with tabs[0]:
             if st.button("그림 키워드 추가", disabled=not kw.strip(), use_container_width=True):
                 ss.profile.add_image_keywords(kw, "그림"); st.rerun()
         st.markdown("---")
+        # ── 학생 그림 업로드 → 쉬운 말 변환(GPT-4V) → 선생님 확인/수정 ──
+        st.markdown("#### 🎨 학생 그림 올리기 (jpg / png / pdf)")
+        st.caption("그림을 올리면 쉬운 말로 바꿔 보여드려요. 선생님이 확인·수정한 뒤 추가하세요. "
+                   "(그림 해석에만 GPT-4V를 써요. API Key 필요)")
+        img_up = st.file_uploader("그림 파일", type=["jpg", "jpeg", "png", "pdf"],
+                                  key="imgup", label_visibility="collapsed")
+        if img_up:
+            if img_up.name.lower().endswith(("jpg", "jpeg", "png")):
+                st.image(img_up, width=260)
+            if not ss.api_key:
+                st.warning("그림을 쉬운 말로 바꾸려면 왼쪽에 OpenAI API Key를 넣어주세요.")
+            elif st.button("🔎 그림을 쉬운 말로 바꾸기", use_container_width=True):
+                from file_ingest import image_to_easy_text
+                with st.spinner("그림을 읽는 중..."):
+                    try:
+                        ss["img_draft"] = image_to_easy_text(
+                            img_up.name, img_up.getvalue(), ss.api_key, "gpt-4o")
+                    except Exception as e:
+                        st.error(f"그림 해석 실패: {e}")
+        # 변환 결과: 선생님이 확인·수정 후 추가
+        if ss.get("img_draft"):
+            st.markdown("**확인·수정 (그림 해석이 틀렸으면 고쳐주세요)**")
+            edited = st.text_area("쉬운 말 설명", value=ss["img_draft"], height=120,
+                                  key="img_edit")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("✅ 이 설명을 학생 코퍼스에 추가", use_container_width=True):
+                    ss.profile.add_text(edited, "그림설명")
+                    ss["img_draft"] = ""; st.success("추가했어요"); st.rerun()
+            with cc2:
+                if st.button("🗑️ 버리기", use_container_width=True):
+                    ss["img_draft"] = ""; st.rerun()
+        st.markdown("---")
         s = ss.profile.summary()
         st.caption(f"텍스트 {s['텍스트 조각']}개 · 그림 키워드 {s['그림 키워드 묶음']}개")
         if ss.profile.has_text():
@@ -118,11 +151,20 @@ with tabs[0]:
 with tabs[1]:
     st.markdown("#### 전문 지식 자료 (안전 매뉴얼 / 특수교육학 개론 등)")
     st.caption("학생 코퍼스와 분리됩니다. 여기 자료로 '정확성'을 판정합니다.")
-    ex_up = st.file_uploader("자료 업로드 (txt)", type=["txt"], key="exup")
+    ex_up = st.file_uploader("자료 업로드 (txt / pdf / docx)",
+                             type=["txt", "pdf", "docx"], key="exup")
     name = st.text_input("자료 이름", value="전문자료")
     if ex_up and st.button("자료 추가", use_container_width=True):
-        text = ex_up.read().decode("utf-8", errors="ignore")
-        g.add_expert_text(text, name); st.success(f"'{name}' 추가됨"); st.rerun()
+        from file_ingest import extract_text
+        try:
+            text = extract_text(ex_up.name, ex_up.read())
+            if not text.strip():
+                st.warning("파일에서 글자를 찾지 못했어요(스캔본일 수 있어요).")
+            else:
+                g.add_expert_text(text, name)
+                st.success(f"'{name}' 추가됨 ({len(text)}자)"); st.rerun()
+        except Exception as e:
+            st.error(f"추출 실패: {e}")
     paste = st.text_area("또는 직접 붙여넣기", height=120)
     if paste.strip() and st.button("붙여넣은 자료 추가", use_container_width=True):
         g.add_expert_text(paste, name); st.rerun()
