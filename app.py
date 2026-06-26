@@ -86,7 +86,7 @@ c3.metric("학생", gs["학생"])
 c4.metric("학생 학습", "예" if gs["학생 학습됨"] else "아니오")
 st.markdown("---")
 
-tabs = st.tabs(["✍️ 학생 입력", "📚 전문 코퍼스", "🎓 학습", "💬 채팅", "🔍 검증"])
+tabs = st.tabs(["✍️ 학생 입력", "📚 전문 코퍼스", "🎓 학습", "🧒 학생용 자료 만들기", "👩‍🏫 교사 상담"])
 
 # ── 탭1: 학생 입력 ──
 with tabs[0]:
@@ -191,57 +191,76 @@ with tabs[2]:
                 g.set_student(ss.profile); g.train_student()
                 st.success("학생 학습 완료"); st.rerun()
 
-# ── 탭4: 채팅 ──
+# ── 탭4: 학생용 자료 만들기 ──
 with tabs[3]:
-    st.markdown("#### 상황을 입력하면, 전문 지식 기반으로 이 학생에 맞게 답합니다")
-    if not ss.api_key:
-        st.warning("왼쪽에 OpenAI API Key를 입력하세요.")
-    elif not g.is_ready():
+    st.markdown("#### 수업 내용을 넣으면, 이 학생이 이해할 쉬운 자료로 만들어요")
+    st.caption("입력 → 자체 가드레일로 '이 학생에게 쉬운가' 판정 → 어려우면 쉬운 말로 변환")
+    if not g.is_ready():
         st.info("먼저 '학습' 탭에서 전문/학생 코퍼스를 학습하세요.")
     else:
-        for m in ss.chat[-10:]:
-            if m["role"]=="user":
-                st.markdown(f'<div class="bubble-u"><span>{m["text"]}</span></div>', unsafe_allow_html=True)
+        src = st.text_area("수업 내용 / 안내문", height=110,
+                           placeholder="예: 화재가 발생하면 비상구를 통해 신속히 대피한다")
+        make = st.button("🧒 학생용 자료 만들기", type="primary",
+                         disabled=not src.strip(), use_container_width=True)
+        if make:
+            v = g.evaluate(src.strip())
+            def fmt(x):
+                cls = {"PASS":"v-pass","WARNING":"v-warn","FATAL":"v-fatal"}.get(x,"")
+                return f"<span class='{cls}'>{x}</span>"
+            st.markdown(f"정확성(전문): {fmt(v['expert']['verdict'])} · "
+                        f"이해도(학생): {fmt(v['student']['verdict'])}", unsafe_allow_html=True)
+            if v["student"]["verdict"] == "PASS":
+                st.success("이 학생이 이해할 수 있는 쉬운 자료예요.")
+                st.markdown(f"<div style='background:#eef7ee;padding:18px;border-radius:12px;"
+                            f"font-size:22px'>{src.strip()}</div>", unsafe_allow_html=True)
+            elif not ss.api_key:
+                st.warning("이 학생에겐 어려워요. 쉬운 말 변환에 OpenAI API Key가 필요해요.")
             else:
-                st.markdown(f'<div class="bubble-a"><span>{m["text"]}</span></div>', unsafe_allow_html=True)
-                st.caption(m.get("meta",""))
-        msg = st.text_area("상황 입력", height=80, key="chatin",
-                           placeholder="예: 지금 불이 났어요. 이 학생에게 어떻게 안내하죠?")
-        if st.button("보내기", type="primary", disabled=not msg.strip()):
-            bridge = LLMBridge(g, ss.api_key, ss.model)
-            with st.spinner("생성 중..."):
-                r = bridge.respond(msg.strip())
-            ss.chat.append({"role":"user","text":msg.strip()})
-            meta = f"정확성:{r.get('expert')} · 이해도:{r.get('student')} · {r.get('attempts')}회"
-            ss.chat.append({"role":"assistant","text":r["answer"],"meta":meta})
-            st.rerun()
-
-# ── 탭5: 검증 (+쉬운말 변환) ──
-with tabs[4]:
-    st.markdown("#### 안내문 검증 + 쉬운 말 변환")
-    if not g.is_ready():
-        st.info("먼저 학습하세요.")
-    else:
-        t = st.text_area("검증할 안내문", height=80,
-                         placeholder="예: 금일 화재 발생, 비상구로 신속히 대피 바람")
-        c1,c2 = st.columns(2)
-        with c1:
-            if st.button("🔍 검증만", use_container_width=True, disabled=not t.strip()):
-                v = g.evaluate(t.strip())
-                def fmt(x):
-                    cls={"PASS":"v-pass","WARNING":"v-warn","FATAL":"v-fatal"}.get(x,"")
-                    return f"<span class='{cls}'>{x}</span>"
-                st.markdown(f"정확성(전문): {fmt(v['expert']['verdict'])}", unsafe_allow_html=True)
-                st.markdown(f"이해도(학생): {fmt(v['student']['verdict'])}", unsafe_allow_html=True)
-                st.markdown(f"종합: {fmt(v['overall'])}", unsafe_allow_html=True)
-                if v["needs_simplify"]:
-                    st.caption("→ 이 학생에겐 어려워요. '쉬운 말로 변환'을 눌러보세요.")
-        with c2:
-            if st.button("✨ 쉬운 말로 변환", use_container_width=True,
-                         disabled=not t.strip() or not ss.api_key):
                 bridge = LLMBridge(g, ss.api_key, ss.model)
-                with st.spinner("변환 중..."):
-                    r = bridge.simplify(t.strip())
-                st.success("변환 결과")
-                st.markdown(f"**{r['answer']}**")
-                st.caption(f"이해도:{r.get('student')} · {r.get('attempts')}회 시도")
+                with st.spinner("이 학생에 맞는 쉬운 말로 바꾸는 중..."):
+                    r = bridge.simplify(src.strip())
+                st.success("학생용 쉬운 자료")
+                st.markdown(f"<div style='background:#eef7ee;padding:18px;border-radius:12px;"
+                            f"font-size:24px;line-height:1.6'>{r['answer']}</div>",
+                            unsafe_allow_html=True)
+                st.caption(f"이해도:{r.get('student')} · {r.get('attempts')}회 변환")
+
+# ── 탭5: 교사 상담 ──
+with tabs[4]:
+    st.markdown("#### 교육학 자료를 근거로, 이 학생 수업에 대해 자세히 상담해요")
+    st.caption("전문(교육학) 코퍼스 기반 답변. 교사용이라 분량을 넉넉히 보여줘요.")
+    if not ss.api_key:
+        st.warning("왼쪽에 OpenAI API Key를 입력하세요.")
+    elif g.expert_engine is None:
+        st.info("먼저 '학습' 탭에서 전문(교육학) 코퍼스를 학습하세요.")
+    else:
+        for m in ss.chat[-12:]:
+            if m["role"] == "user":
+                st.markdown(f'<div class="bubble-u"><span>{m["text"]}</span></div>',
+                            unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="bubble-a"><span>{m["text"]}</span></div>',
+                            unsafe_allow_html=True)
+                if m.get("meta"):
+                    st.caption(m["meta"])
+        msg = st.text_area("질문", height=90, key="t_chatin",
+                           placeholder="예: 이 학생에게 화재 대피를 가르칠 때 어떤 교수법이 좋을까요? "
+                                       "단계별로 알려주세요.")
+        col_a, col_b = st.columns([3, 1])
+        with col_b:
+            length = st.selectbox("분량", ["보통", "길게", "아주 길게"], index=1,
+                                  label_visibility="collapsed")
+        with col_a:
+            send = st.button("보내기", type="primary", disabled=not msg.strip(),
+                             use_container_width=True)
+        if send:
+            mt = {"보통": 1000, "길게": 1800, "아주 길게": 2800}[length]
+            bridge = LLMBridge(g, ss.api_key, ss.model)
+            with st.spinner("교육학 자료를 근거로 정리하는 중..."):
+                r = bridge.teacher_answer(msg.strip(), max_tokens=mt)
+            ss.chat.append({"role": "user", "text": msg.strip()})
+            ss.chat.append({"role": "assistant", "text": r["answer"],
+                            "meta": f"정확성(전문자료 근거): {r.get('expert')}"})
+            st.rerun()
+        if ss.chat and st.button("🗑️ 대화 비우기"):
+            ss.chat = []; st.rerun()
