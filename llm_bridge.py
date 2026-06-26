@@ -88,7 +88,37 @@ class LLMBridge:
                 "student": v["student"]["verdict"],
                 "attempts": attempt, "history": history}
 
-    # ── 2) 쉬운 말 재작성: FATAL 안내문 → 학생 수준 ───────────
+    # ── 3) 교사 상담: 교육학 코퍼스 기반 긴 답변 ───────────────
+    def teacher_answer(self, question: str, max_tokens: int = 1800) -> dict:
+        """
+        교사용. 전문(교육학) 코퍼스를 근거로 충분히 자세히 답한다.
+        학생 쉬운말 제약을 두지 않음(교사가 읽는 글이므로).
+        정확성만 전문 가드레일로 점검(참고용).
+        """
+        expert_hint = self._expert_hint(2500)
+        sys = (
+            "당신은 특수교육 교사를 돕는 전문 보조자입니다.\n"
+            "[규칙]\n"
+            "1. 아래 전문 자료(교육학/교수법)를 근거로 구체적이고 실용적으로 답하세요.\n"
+            "2. 자료에 없는 내용을 지어내지 말고, 모르면 모른다고 하세요.\n"
+            "3. 교사가 바로 쓸 수 있게 단계/예시/주의점을 충분히 풀어서 설명하세요.\n"
+            "4. 이건 교사용 답변이므로 쉬운 말 제약은 없습니다. 다만 명료하게 쓰세요.\n"
+            f"[전문 자료]\n{expert_hint}"
+        )
+        try:
+            ans = _call_openai(self.api_key, self.model, sys, question,
+                               max_tokens=max_tokens, temperature=0.4)
+        except Exception as e:
+            return {"answer": f"[LLM 오류: {e}]", "expert": "ERROR"}
+        # 정확성 점검(참고용) — 전문 엔진만
+        try:
+            ev = self.g.evaluate(ans)
+            exp = ev["expert"]["verdict"]
+        except Exception:
+            exp = "SKIP"
+        return {"answer": ans, "expert": exp}
+
+
     def simplify(self, hard_text: str, max_attempts: int = 4) -> dict:
         """
         너무 어려운 안내문을 그 학생이 이해할 쉬운 말로 재작성.
